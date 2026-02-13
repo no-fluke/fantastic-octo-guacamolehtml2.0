@@ -403,7 +403,7 @@ mjx-container{{
   const db = firebase.database();
 
   // ---------- CONFIGURATION ----------
-  const LOGIN_PAGE_URL = "/login.html";  // Your login page path
+  const LOGIN_PAGE_URL = ""/website-finial/login.html";  // Your login page path
   // -----------------------------------
 
   // Quiz data from Python
