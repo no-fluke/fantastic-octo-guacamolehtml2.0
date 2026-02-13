@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: quiz-generator-bot
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: BOT_TOKEN
+        sync: false
+      - key: RENDER_APP_URL
+        fromService:
+          type: web
+          name: quiz-generator-bot
+          property: url
+      - key: PORT
+        value: 10000
+    healthCheckPath: /health
+    autoDeploy: true
