@@ -232,7 +232,7 @@ def parse_txt_file(content):
 def generate_html_quiz(quiz_data):
     """Generate HTML quiz from the parsed data"""
     
-    # Updated template with Firebase Auth, no ads, top 10 leaderboard
+    # Updated template with fast auth, candidate name in leaderboard, no ads
     template = """<!doctype html>
 <html lang="en">
 <head>
@@ -423,24 +423,72 @@ mjx-container{{
   const QUIZ_STATE_KEY = "ssc_quiz_state_" + QUIZ_TITLE;
   const QUIZ_RESULT_KEY = "ssc_quiz_result_" + QUIZ_TITLE;
 
-  // Auth state observer
-  auth.onAuthStateChanged(user => {{
-    if (user) {{
-      currentUser = user;
-      document.getElementById('loadingMessage').style.display = 'none';
-      document.getElementById('quizHeader').style.display = 'flex';
-      document.getElementById('quizContainer').style.display = 'block';
-      document.getElementById('floatBar').style.display = 'flex';
-      if (!window.quizInitialized) {{
-        initQuiz();
-        window.quizInitialized = true;
-      }}
-    }} else {{
-      // Not logged in – redirect to login page
-      const returnTo = encodeURIComponent(window.location.href);
-      window.location.href = LOGIN_PAGE_URL + "?returnTo=" + returnTo;
+  // ----- FAST AUTH CHECK -----
+  function showQuizImmediately() {{
+    document.getElementById('loadingMessage').style.display = 'none';
+    document.getElementById('quizHeader').style.display = 'flex';
+    document.getElementById('quizContainer').style.display = 'block';
+    document.getElementById('floatBar').style.display = 'flex';
+    if (!window.quizInitialized) {{
+      initQuiz();
+      window.quizInitialized = true;
     }}
-  }});
+  }}
+
+  // Try synchronous currentUser first
+  const syncUser = auth.currentUser;
+  if (syncUser) {{
+    // Already authenticated – use it
+    currentUser = syncUser;
+    // Cache user data
+    localStorage.setItem('quiz_user_uid', syncUser.uid);
+    localStorage.setItem('quiz_user_email', syncUser.email);
+    localStorage.setItem('quiz_user_displayName', syncUser.displayName || '');
+    localStorage.setItem('quiz_login_time', Date.now());
+    showQuizImmediately();
+  }} else {{
+    // Check for cached UID (optimistic)
+    const cachedUid = localStorage.getItem('quiz_user_uid');
+    const cachedName = localStorage.getItem('quiz_user_displayName') || localStorage.getItem('quiz_user_email');
+    const cachedTime = localStorage.getItem('quiz_login_time');
+    const now = Date.now();
+    const CACHE_VALIDITY = 60 * 60 * 1000; // 1 hour
+
+    if (cachedUid && cachedTime && (now - cachedTime < CACHE_VALIDITY)) {{
+      // Show quiz immediately with cached data
+      currentUser = {{
+        uid: cachedUid,
+        email: localStorage.getItem('quiz_user_email'),
+        displayName: localStorage.getItem('quiz_user_displayName')
+      }};
+      showQuizImmediately();
+    }}
+
+    // Also set up observer to catch real auth state (and update cache if needed)
+    auth.onAuthStateChanged(user => {{
+      if (user) {{
+        currentUser = user;
+        // Update cache
+        localStorage.setItem('quiz_user_uid', user.uid);
+        localStorage.setItem('quiz_user_email', user.email);
+        localStorage.setItem('quiz_user_displayName', user.displayName || '');
+        localStorage.setItem('quiz_login_time', Date.now());
+
+        // If quiz not already shown (cached was missing/expired), show it now
+        if (!window.quizInitialized) {{
+          showQuizImmediately();
+        }}
+      }} else {{
+        // Not logged in – clear cache and redirect
+        localStorage.removeItem('quiz_user_uid');
+        localStorage.removeItem('quiz_user_email');
+        localStorage.removeItem('quiz_user_displayName');
+        localStorage.removeItem('quiz_login_time');
+        const returnTo = encodeURIComponent(window.location.href);
+        window.location.href = LOGIN_PAGE_URL + "?returnTo=" + returnTo;
+      }}
+    }});
+  }}
 
   const el = id => document.getElementById(id);
 
@@ -578,7 +626,7 @@ mjx-container{{
     if (window.MathJax && MathJax.typesetPromise) MathJax.typesetPromise();
   }}
 
-  // Leaderboard: fetch all attempts and show top 10
+  // Leaderboard: fetch all attempts and show top 10 with candidate name
   function showLeaderboard() {{
     db.ref("attempt_history/" + QUIZ_TITLE).once("value").then(snapshot => {{
       const data = snapshot.val();
@@ -597,8 +645,10 @@ mjx-container{{
       const top10 = attempts.slice(0,10);
       let html = '';
       top10.forEach((a, idx) => {{
+        // Use displayName if available, otherwise email
+        const name = a.displayName || a.email || 'Anonymous';
         html += `<div class="leaderboard-entry" style="display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid #eee;">
-          <span>${{idx+1}}. ${{a.email || 'Anonymous'}}</span>
+          <span>${{idx+1}}. ${{name}}</span>
           <span>Score: ${{a.score}} | Time: ${{fmt(a.timeTaken)}}</span>
         </div>`;
       }});
@@ -628,9 +678,13 @@ mjx-container{{
     const unattempted = QUESTIONS.length - attempted;
     const accuracy = attempted ? ((correct/attempted)*100).toFixed(1) : "0.0";
 
+    // Get display name from currentUser
+    const displayName = currentUser.displayName || currentUser.email || 'Anonymous';
+
     const payload = {{
       userId: currentUser.uid,
       email: currentUser.email,
+      displayName: displayName,
       score: totalMarks,
       maxMarks,
       correct,
@@ -653,7 +707,7 @@ mjx-container{{
     // Save to Firebase
     db.ref(`attempt_history/${{QUIZ_TITLE}}/${{currentUser.uid}}/${{payload.submittedAt}}`).set(payload);
 
-    // Directly show results (no ad)
+    // Directly show results
     displayResults(payload);
   }}
 
