@@ -389,20 +389,20 @@ mjx-container{{
 <script>
   // 🔥 Your Firebase configuration (REPLACE WITH YOUR OWN)
   const firebaseConfig = {{
-    apiKey: "AIzaSyBWF7Ojso-w0BucbqJylGR7h9eGeDQodzE",
+    apiKey: "AIzaSyAQk0dJayCyv8gfDGsYW-XSYC5n13oWvpA",
     authDomain: "ssc-quiz-rank-percentile.firebaseapp.com",
     databaseURL: "https://ssc-quiz-rank-percentile-default-rtdb.firebaseio.com",
-    projectId: "ssc-quiz-rank-percentile",
-    storageBucket: "ssc-quiz-rank-percentile.firebasestorage.app",
-    messagingSenderId: "944635517164",
-    appId: "1:944635517164:web:62f0cc83892917f225edc9"
+    projectId: "ssc-journey",
+    storageBucket: "ssc-journey.firebasestorage.app",
+    messagingSenderId: "151868913274",
+    appId: "1:151868913274:web:d5a49a708b1db722052dc3"
   }};
   firebase.initializeApp(firebaseConfig);
   const auth = firebase.auth();
   const db = firebase.database();
 
   // ---------- CONFIGURATION ----------
-  const LOGIN_PAGE_URL = "/login";  // CHANGE to your actual login page URL
+  const LOGIN_PAGE_URL = "/login.html";  // CHANGE to your actual login page URL
   // -----------------------------------
 
   // Quiz data from Python
