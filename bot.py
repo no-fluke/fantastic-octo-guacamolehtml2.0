@@ -232,7 +232,7 @@ def parse_txt_file(content):
 def generate_html_quiz(quiz_data):
     """Generate HTML quiz from the parsed data"""
     
-    # Updated template with Firebase Auth, no name/join popup, leaderboard, ad placeholder
+    # Updated template with Firebase Auth, no ads, top 10 leaderboard
     template = """<!doctype html>
 <html lang="en">
 <head>
@@ -324,18 +324,18 @@ h1{{margin:0;color:var(--accent);font-size:18px}}
 .btn-clear{{background:var(--warning);color:#fff}}
 
 /* 🔐 COPY & SELECTION BLOCK */
-body {{
+body{{
   -webkit-user-select: none;
   -moz-user-select: none;
   -ms-user-select: none;
   user-select: none;
 }}
-input, textarea {{
+input, textarea{{
   user-select: text !important;
 }}
 
 /* 🔢 MathJax mobile safety */
-mjx-container {{
+mjx-container{{
   max-width: 100%;
   overflow-x: auto;
   font-family: Inter, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif !important;
@@ -343,29 +343,29 @@ mjx-container {{
 }}
 
 /* Responsive design */
-@media (max-width: 768px) {{
-  .header-inner {{ flex-direction: column; gap:8px; padding:8px; }}
-  .fbar-inner {{ flex-wrap: wrap; padding:8px; gap:6px; }}
-  .fbar button {{ padding:6px 8px; font-size:12px; flex:1 1 80px; }}
-  .container {{ padding:8px; }}
-  .qtext {{ font-size:15px; }}
-  .opt {{ padding:8px; }}
-  #palette {{ top:120px; left:50%; transform:translateX(-50%); max-width:90%; }}
-  #palette .qbtn {{ width:38px; height:38px; }}
-  .stats {{ flex-direction:column; }}
-  .stat {{ flex:1 1 auto; }}
+@media (max-width: 768px){{
+  .header-inner{{ flex-direction: column; gap:8px; padding:8px; }}
+  .fbar-inner{{ flex-wrap: wrap; padding:8px; gap:6px; }}
+  .fbar button{{ padding:6px 8px; font-size:12px; flex:1 1 80px; }}
+  .container{{ padding:8px; }}
+  .qtext{{ font-size:15px; }}
+  .opt{{ padding:8px; }}
+  #palette{{ top:120px; left:50%; transform:translateX(-50%); max-width:90%; }}
+  #palette .qbtn{{ width:38px; height:38px; }}
+  .stats{{ flex-direction:column; }}
+  .stat{{ flex:1 1 auto; }}
 }}
-@media (max-width: 480px) {{
-  .timer-text {{ font-size:16px; }}
-  h1 {{ font-size:16px; }}
-  .btn, .btn-ghost {{ padding:6px 10px; font-size:12px; }}
-  .fbar-inner {{ gap:4px; }}
-  .fbar button {{ padding:6px; font-size:11px; }}
-  .card {{ padding:8px; }}
+@media (max-width: 480px){{
+  .timer-text{{ font-size:16px; }}
+  h1{{ font-size:16px; }}
+  .btn, .btn-ghost{{ padding:6px 10px; font-size:12px; }}
+  .fbar-inner{{ gap:4px; }}
+  .fbar button{{ padding:6px; font-size:11px; }}
+  .card{{ padding:8px; }}
 }}
-@media (min-width: 1024px) {{
-  .container {{ max-width:900px; }}
-  .fbar-inner {{ max-width:900px; }}
+@media (min-width: 1024px){{
+  .container{{ max-width:900px; }}
+  .fbar-inner{{ max-width:900px; }}
 }}
 </style>
 
@@ -418,7 +418,6 @@ mjx-container {{
   let seconds = TOTAL_TIME_SECONDS;
   let timerInterval = null;
   let isQuiz = false;
-  let ALL_ATTEMPTS_CACHE = {{}};
   let LAST_RESULT_HTML = "";
 
   const QUIZ_STATE_KEY = "ssc_quiz_state_" + QUIZ_TITLE;
@@ -579,7 +578,7 @@ mjx-container {{
     if (window.MathJax && MathJax.typesetPromise) MathJax.typesetPromise();
   }}
 
-  // Leaderboard functions
+  // Leaderboard: fetch all attempts and show top 10
   function showLeaderboard() {{
     db.ref("attempt_history/" + QUIZ_TITLE).once("value").then(snapshot => {{
       const data = snapshot.val();
@@ -592,9 +591,12 @@ mjx-container {{
       Object.values(data).forEach(userAttempts => {{
         Object.values(userAttempts).forEach(a => attempts.push(a));
       }});
+      // Sort by score descending, then time ascending
       attempts.sort((a,b) => b.score - a.score || a.timeTaken - b.timeTaken);
+      // Take top 10
+      const top10 = attempts.slice(0,10);
       let html = '';
-      attempts.slice(0,50).forEach((a, idx) => {{
+      top10.forEach((a, idx) => {{
         html += `<div class="leaderboard-entry" style="display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid #eee;">
           <span>${{idx+1}}. ${{a.email || 'Anonymous'}}</span>
           <span>Score: ${{a.score}} | Time: ${{fmt(a.timeTaken)}}</span>
@@ -605,7 +607,7 @@ mjx-container {{
     }});
   }}
 
-  // Submit flow with ad placeholder
+  // Submit quiz (no ads)
   function submitQuiz() {{
     clearInterval(timerInterval);
     const timeTaken = TOTAL_TIME_SECONDS - seconds;
@@ -651,11 +653,8 @@ mjx-container {{
     // Save to Firebase
     db.ref(`attempt_history/${{QUIZ_TITLE}}/${{currentUser.uid}}/${{payload.submittedAt}}`).set(payload);
 
-    // ----- AD PLACEHOLDER -----
-    // Replace this with your Monetag ad integration
-    // Example: if (window.monetag) monetag.showInterstitial({ onClose: () => displayResults(payload) });
-    // For now, we simulate a 2-second delay
-    setTimeout(() => displayResults(payload), 2000);
+    // Directly show results (no ad)
+    displayResults(payload);
   }}
 
   function displayResults(payload) {{
@@ -906,7 +905,7 @@ mjx-container {{
 <!-- LEADERBOARD MODAL -->
 <div id="leaderboardModal" class="modal">
   <div class="modal-content" style="max-width:600px; text-align:left;">
-    <h3>Leaderboard</h3>
+    <h3>Top 10 Leaderboard</h3>
     <div id="leaderboardBody" style="max-height:400px; overflow-y:auto;"></div>
     <button id="closeLeaderboard" class="btn" style="margin-top:12px;">Close</button>
   </div>
