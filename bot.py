@@ -391,7 +391,7 @@ mjx-container{{
   const firebaseConfig = {{
     apiKey: "AIzaSyAQk0dJayCyv8gfDGsYW-XSYC5n13oWvpA",
     authDomain: "ssc-journey.firebaseapp.com",
-    databaseURL: "https://ssc-journey-default-rtdb.firebaseio.com", // 🔴 REPLACE with your actual Realtime Database URL
+    databaseURL: "https://ssc-journey-default-rtdb.asia-southeast1.firebasedatabase.app/", // 🔴 REPLACE with your actual Realtime Database URL
     projectId: "ssc-journey",
     storageBucket: "ssc-journey.firebasestorage.app",
     messagingSenderId: "151868913274",
