@@ -302,6 +302,11 @@ h1{{margin:0;color:var(--accent);font-size:18px}}
 #palette .qbtn.attempted{{background:var(--success);color:#fff;border:none}}
 #palette .qbtn.unattempted{{background:var(--danger);color:#fff;border:none}}
 #palette .qbtn.marked{{background:var(--purple);color:#fff;border:none}}
+#palette .qbtn.sol-right{{background:var(--success);color:#fff;border:none}}
+#palette .qbtn.sol-wrong{{background:var(--danger);color:#fff;border:none}}
+#palette .qbtn.sol-skip{{background:#9e9e9e;color:#fff;border:none}}
+#palette .qbtn.has-star{{position:relative}}
+#palette .qbtn.has-star::after{{content:"★";position:absolute;bottom:2px;right:2px;font-size:12px;color:gold;text-shadow:0 0 2px #000}}
 #palette .qbtn.current{{border:3px solid var(--accent);font-weight:bold;transform:scale(1.05);box-shadow:0 0 0 2px rgba(46,196,182,0.2)}}
 #palette-summary{{margin-top:8px;font-size:13px;color:var(--muted);text-align:center}}
 
@@ -477,7 +482,7 @@ mjx-container{{
   const db = firebase.database();
 
   // ---------- CONFIGURATION ----------
-  const LOGIN_PAGE_URL = "login.html";  // ✅ relative path (same folder)
+  const LOGIN_PAGE_URL = "login.html";
   // -----------------------------------
 
   // Quiz data from Python
@@ -492,13 +497,12 @@ mjx-container{{
   let markedForReview = new Set();
   let seconds = TOTAL_TIME_SECONDS;
   let timerInterval = null;
-  let isQuiz = false;
+  let isQuiz = false;          // false = Test mode (solution), true = Quiz mode
   let LAST_RESULT_HTML = "";
 
   const QUIZ_STATE_KEY = "ssc_quiz_state_" + QUIZ_TITLE;
   const QUIZ_RESULT_KEY = "ssc_quiz_result_" + QUIZ_TITLE;
 
-  // Helper functions
   const el = id => document.getElementById(id);
 
   function showQuizImmediately() {{
@@ -512,63 +516,42 @@ mjx-container{{
     }}
   }}
 
-  // Redirect helper
   function redirectToLogin() {{
     const returnTo = encodeURIComponent(window.location.href);
     window.location.href = LOGIN_PAGE_URL + "?returnTo=" + returnTo;
   }}
 
-  // ---------- FIXED AUTH LOGIC ----------
+  // ---------- AUTH ----------
   window.addEventListener('DOMContentLoaded', () => {{
-    // 1. Set persistence to LOCAL
-    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
-      .catch(error => console.error("Persistence error:", error));
-
-    // 2. Timeout fallback – if auth doesn't resolve in 4 seconds, redirect
+    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL).catch(console.error);
     let authResolved = false;
     const authTimeout = setTimeout(() => {{
-      if (!authResolved) {{
-        console.warn("Auth timeout – redirecting to login.");
-        redirectToLogin();
-      }}
+      if (!authResolved) redirectToLogin();
     }}, 4000);
 
-    // 3. Try to use cached user for instant display (but still verify)
     const cachedUid = localStorage.getItem('quiz_user_uid');
     const cachedEmail = localStorage.getItem('quiz_user_email');
     const cachedName = localStorage.getItem('quiz_user_displayName');
     const cachedTime = localStorage.getItem('quiz_login_time');
     const now = Date.now();
-    const CACHE_VALIDITY = 60 * 60 * 1000; // 1 hour
+    const CACHE_VALIDITY = 60 * 60 * 1000;
 
     if (cachedUid && cachedTime && (now - cachedTime < CACHE_VALIDITY)) {{
-      // Show quiz immediately with cached data (fast UI)
-      currentUser = {{
-        uid: cachedUid,
-        email: cachedEmail,
-        displayName: cachedName || cachedEmail
-      }};
+      currentUser = {{ uid: cachedUid, email: cachedEmail, displayName: cachedName || cachedEmail }};
       showQuizImmediately();
     }}
 
-    // 4. Listen to real auth state
     auth.onAuthStateChanged(user => {{
       authResolved = true;
       clearTimeout(authTimeout);
-
       if (user) {{
-        // Real user logged in – update cache and show quiz if not already shown
         currentUser = user;
         localStorage.setItem('quiz_user_uid', user.uid);
         localStorage.setItem('quiz_user_email', user.email);
         localStorage.setItem('quiz_user_displayName', user.displayName || '');
         localStorage.setItem('quiz_login_time', Date.now());
-
-        if (!window.quizInitialized) {{
-          showQuizImmediately();
-        }}
+        if (!window.quizInitialized) showQuizImmediately();
       }} else {{
-        // No user – clear cache and redirect
         localStorage.removeItem('quiz_user_uid');
         localStorage.removeItem('quiz_user_email');
         localStorage.removeItem('quiz_user_displayName');
@@ -576,17 +559,15 @@ mjx-container{{
         redirectToLogin();
       }}
     }}, error => {{
-      // 5. Error handling
       console.error("Auth error:", error);
       authResolved = true;
       clearTimeout(authTimeout);
       el('loadingMessage').innerText = 'Authentication error. Please refresh.';
-      // Optionally redirect after a delay
       setTimeout(redirectToLogin, 2000);
     }});
   }});
-  // ---------- END FIXED AUTH ----------
 
+  // ---------- QUIZ FUNCTIONS ----------
   function initQuiz() {{
     el("qtotal").textContent = QUESTIONS.length;
     const resultSaved = localStorage.getItem(QUIZ_RESULT_KEY);
@@ -635,18 +616,40 @@ mjx-container{{
     el("marking").innerHTML = `Marking: <span style="color:var(--success)">+${{Number(q.correct_score ?? 1)}}</span> / <span style="color:var(--danger)">-${{Number(q.negative_score ?? 0)}}</span>`;
     const opts = el("options");
     opts.innerHTML = "";
-    el("explanation").style.display = "none";
+    const qid = q.id ?? i;
+    const userAns = answers[qid];
 
     ["option_1","option_2","option_3","option_4","option_5"].forEach((k, idx) => {{
       if(!q[k]) return;
       const div = document.createElement("div");
       div.className = "opt";
       div.innerHTML = `<div class="custom-radio"></div><div style="flex:1">${{q[k]}}</div>`;
-      div.addEventListener("click", () => selectOption(q, idx+1, div));
-      const qid = q.id ?? i;
-      if(answers[qid] === String(idx+1)) div.classList.add("selected");
+
+      // In Quiz mode: show selected only, no correct/wrong yet
+      if (isQuiz) {{
+        if (userAns === String(idx+1)) div.classList.add("selected");
+        div.addEventListener("click", () => selectOption(q, idx+1, div));
+      }} else {{
+        // Solution mode: show correct answer and user's wrong answer (if any)
+        const isCorrect = String(q.answer) === String(idx+1);
+        const isUserWrong = (userAns && userAns === String(idx+1) && !isCorrect);
+        if (isCorrect) div.classList.add("correct");
+        else if (isUserWrong) div.classList.add("wrong");
+        // No click handler in solution mode
+      }}
       opts.appendChild(div);
     }});
+
+    // Show explanation in solution mode
+    if (!isQuiz && q.solution_text) {{
+      el("explanation").innerHTML = `<strong>Explanation:</strong> ${{q.solution_text}}`;
+      el("explanation").style.display = "block";
+      normalizeMathForQuiz(el("explanation"));
+      renderMath();
+    }} else {{
+      el("explanation").style.display = "none";
+    }}
+
     highlightPalette();
     saveQuizState();
   }}
@@ -656,7 +659,9 @@ mjx-container{{
     answers[qid] = String(val);
     Array.from(el("options").children).forEach(o => o.classList.remove("selected"));
     div.classList.add("selected");
-    if(isQuiz) showFeedback(q, val);
+    // In quiz mode, we may show immediate feedback if desired; here we don't auto-show correct/wrong.
+    // If you want instant feedback, uncomment showFeedback.
+    // showFeedback(q, val);
     highlightPalette();
     saveQuizState();
   }}
@@ -668,12 +673,6 @@ mjx-container{{
       if(String(q.answer) === String(idx1)) o.classList.add("correct");
       else if(String(val) === String(idx1)) o.classList.add("wrong");
     }});
-    if(q.solution_text){{
-      el("explanation").innerHTML = `<strong>Explanation:</strong> ${{q.solution_text}}`;
-      el("explanation").style.display = "block";
-      normalizeMathForQuiz(el("explanation"));
-      renderMath();
-    }}
   }}
 
   function startTimer() {{
@@ -718,21 +717,20 @@ mjx-container{{
     if (window.MathJax && MathJax.typesetPromise) MathJax.typesetPromise();
   }}
 
-  // Load leaderboard for the current quiz (top 10)
+  // ---------- LEADERBOARD (first attempts only) ----------
   function loadLeaderboard() {{
     const leaderboardList = document.getElementById('leaderboardList');
     if (!leaderboardList) return;
     leaderboardList.innerHTML = 'Loading leaderboard...';
-    db.ref("attempt_history/" + QUIZ_TITLE).once("value").then(snap => {{
+    db.ref(`quiz_results/${{QUIZ_TITLE}}`).once("value").then(snap => {{
       const data = snap.val() || {{}};
-      let attempts = [];
-      Object.values(data).forEach(u => Object.values(u).forEach(a => attempts.push(a)));
+      const attempts = Object.values(data);
       attempts.sort((a,b) => b.score - a.score || a.timeTaken - b.timeTaken);
       const top10 = attempts.slice(0,10);
       let html = '';
       top10.forEach((a, idx) => {{
         const name = a.displayName || a.email || 'Anonymous';
-        html += `<div class="leaderboard-entry" style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #eee;">
+        html += `<div class="leaderboard-entry">
           <span>${{idx+1}}. ${{name}}</span>
           <span>Score: ${{a.score}} | Time: ${{fmt(a.timeTaken)}}</span>
         </div>`;
@@ -745,27 +743,22 @@ mjx-container{{
     }});
   }}
 
-  // Load attempt history for the current user
+  // ---------- ATTEMPT HISTORY ----------
   function loadAttemptHistory() {{
     const historyList = document.getElementById('historyList');
     if (!historyList) return;
     historyList.innerHTML = 'Loading your attempt history...';
-    
     if (!currentUser) {{
       historyList.innerHTML = 'You must be logged in to view history.';
       return;
     }}
-
     db.ref(`attempt_history/${{QUIZ_TITLE}}/${{currentUser.uid}}`).once("value").then(snap => {{
       const data = snap.val();
       if (!data) {{
         historyList.innerHTML = '<p>No previous attempts found.</p>';
         return;
       }}
-
-      // Convert object to array and sort by date descending
       const attempts = Object.values(data).sort((a, b) => b.submittedAt - a.submittedAt);
-
       let html = '<div style="display:flex; flex-direction:column; gap:12px;">';
       attempts.forEach((att, index) => {{
         const date = new Date(att.submittedAt).toLocaleString();
@@ -795,7 +788,7 @@ mjx-container{{
     }});
   }}
 
-  // Submit quiz – FIXED: added attempted and accuracy to payload
+  // ---------- SUBMIT QUIZ ----------
   function submitQuiz() {{
     clearInterval(timerInterval);
     const timeTaken = TOTAL_TIME_SECONDS - seconds;
@@ -843,12 +836,21 @@ mjx-container{{
       }})
     }};
 
+    // Save to attempt_history (all attempts)
     db.ref(`attempt_history/${{QUIZ_TITLE}}/${{currentUser.uid}}/${{payload.submittedAt}}`).set(payload);
+
+    // Save to quiz_results only if it's the user's first attempt
+    const quizResultsRef = db.ref(`quiz_results/${{QUIZ_TITLE}}/${{currentUser.uid}}`);
+    quizResultsRef.once("value").then(snap => {{
+      if (!snap.exists()) {{
+        quizResultsRef.set(payload);
+      }}
+    }});
 
     displayResults(payload);
   }}
 
-  // Display results with 4 tabs: Review, Summary, Leaderboard, History
+  // ---------- DISPLAY RESULTS (4 TABS) ----------
   function displayResults(payload) {{
     el("quizCard").style.display = "none";
     el("floatBar").style.display = "none";
@@ -894,7 +896,7 @@ mjx-container{{
       reviewHTML += `</div>`;
     }});
 
-    // ----- Summary tab HTML (stats + rank/percentile) -----
+    // ----- Summary tab HTML (stats + rank/percentile + refresh button) -----
     const summaryHTML = `
       <div class="stats-grid" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:16px; padding:16px;">
         <div class="stat-card" style="background:#f0f4f8; border-radius:12px; padding:16px; text-align:center;">
@@ -930,17 +932,16 @@ mjx-container{{
           <div style="color:#555;">Percentile</div>
         </div>
       </div>
+      <div style="text-align:center; margin-top:16px;">
+        <button class="btn" onclick="refreshRank()">🔄 Refresh Rank</button>
+      </div>
     `;
 
     // ----- Leaderboard tab HTML -----
-    const leaderboardHTML = `
-      <div id="leaderboardList" style="padding:16px;">Loading leaderboard...</div>
-    `;
+    const leaderboardHTML = `<div id="leaderboardList" style="padding:16px;">Loading leaderboard...</div>`;
 
     // ----- History tab HTML -----
-    const historyHTML = `
-      <div id="historyList" style="padding:16px;">Loading your attempt history...</div>
-    `;
+    const historyHTML = `<div id="historyList" style="padding:16px;">Loading your attempt history...</div>`;
 
     // Four tabs
     const finalHTML = `
@@ -988,8 +989,8 @@ mjx-container{{
       }});
     }});
 
-    // Compute rank and percentile
-    db.ref("attempt_history/" + QUIZ_TITLE).once("value").then(snap => {{
+    // Compute rank and percentile initially (based on all attempts)
+    db.ref(`attempt_history/${{QUIZ_TITLE}}`).once("value").then(snap => {{
       const data = snap.val() || {{}};
       let attempts = [];
       Object.values(data).forEach(u => Object.values(u).forEach(a => attempts.push(a)));
@@ -1007,12 +1008,45 @@ mjx-container{{
     }});
   }}
 
+  // ---------- REFRESH RANK ----------
+  function refreshRank() {{
+    const rankSpan = document.getElementById('rankValue');
+    const percentileSpan = document.getElementById('percentileValue');
+    if (!rankSpan || !percentileSpan) return;
+    rankSpan.textContent = '...';
+    percentileSpan.textContent = '...';
+    db.ref(`attempt_history/${{QUIZ_TITLE}}`).once("value").then(snap => {{
+      const data = snap.val() || {{}};
+      let attempts = [];
+      Object.values(data).forEach(u => Object.values(u).forEach(a => attempts.push(a)));
+      attempts.sort((a,b) => b.score - a.score || a.timeTaken - b.timeTaken);
+      const userAttempts = attempts.filter(a => a.userId === currentUser.uid);
+      if (userAttempts.length === 0) {{
+        rankSpan.textContent = 'N/A';
+        percentileSpan.textContent = 'N/A';
+        return;
+      }}
+      const latest = userAttempts.sort((a,b) => b.submittedAt - a.submittedAt)[0];
+      let rank = 1;
+      for (let i=0; i<attempts.length; i++) {{
+        if (attempts[i].userId === latest.userId && attempts[i].submittedAt === latest.submittedAt) {{
+          rank = i+1;
+          break;
+        }}
+      }}
+      const percentile = ((attempts.length - rank) / attempts.length * 100).toFixed(1);
+      rankSpan.textContent = rank + '/' + attempts.length;
+      percentileSpan.textContent = percentile + '%';
+    }}).catch(console.error);
+  }}
+
   function filterResults(type) {{
     document.querySelectorAll(".result-q").forEach(card => {{
       card.style.display = (type === "all" || card.dataset.status === type) ? "block" : "none";
     }});
   }}
 
+  // ---------- ATTACH LISTENERS ----------
   function attachListeners() {{
     el("nextBtn").addEventListener("click", () => current < QUESTIONS.length-1 && renderQuestion(current+1));
     el("prevBtn").addEventListener("click", () => current > 0 && renderQuestion(current-1));
@@ -1048,8 +1082,8 @@ mjx-container{{
       el("modeToggle").classList.toggle("active");
       isQuiz = el("modeToggle").classList.contains("active");
       renderQuestion(current);
+      highlightPalette();
     }});
-    // Leaderboard button removed from header – no listener needed
     document.addEventListener("click", (ev) => {{
       const pal = el("palette");
       if(pal && pal.style.display === "flex" && !pal.contains(ev.target) && ev.target !== el("paletteBtn") && !el("paletteBtn").contains(ev.target)) {{
@@ -1058,6 +1092,7 @@ mjx-container{{
     }});
   }}
 
+  // ---------- PALETTE ----------
   function buildPalette() {{
     const pal = el("palette");
     pal.innerHTML = "";
@@ -1082,21 +1117,54 @@ mjx-container{{
     const pal = el("palette");
     if(!pal) return;
     const total = QUESTIONS.length;
-    const attempted = Object.keys(answers).length;
-    const marked = markedForReview.size;
-    const notAttempted = total - attempted - marked;
     Array.from(pal.children).forEach((child, idx) => {{
       if(child.id === "palette-summary") return;
-      child.classList.remove("attempted","unattempted","marked","current");
+      child.classList.remove("attempted","unattempted","marked","current","sol-right","sol-wrong","sol-skip","has-star");
       const qid = QUESTIONS[idx].id ?? idx;
-      if(idx === current) child.classList.add("current");
-      else if(markedForReview.has(idx)) child.classList.add("marked");
-      else if(answers[qid]) child.classList.add("attempted");
-      else child.classList.add("unattempted");
+      const userAns = answers[qid];
+      const isMarked = markedForReview.has(idx);
+      const correctAns = String(QUESTIONS[idx].answer);
+
+      if (idx === current) child.classList.add("current");
+
+      if (!isQuiz) {{
+        // SOLUTION MODE
+        if (!userAns) {{
+          child.classList.add("sol-skip");
+        }} else if (userAns === correctAns) {{
+          child.classList.add("sol-right");
+        }} else {{
+          child.classList.add("sol-wrong");
+        }}
+        if (isMarked) child.classList.add("has-star");
+      }} else {{
+        // QUIZ MODE
+        if (isMarked) {{
+          child.classList.add("marked");
+        }} else if (userAns) {{
+          child.classList.add("attempted");
+        }} else {{
+          child.classList.add("unattempted");
+        }}
+      }}
     }});
     const summary = el("palette-summary");
-    if(summary) {{
-      summary.innerHTML = `Total: ${{total}} | <span style="color:var(--success)">Attempted: ${{attempted}}</span> | <span style="color:var(--danger)">Unattempted: ${{notAttempted}}</span> | <span style="color:var(--purple)">Marked: ${{marked}}</span>`;
+    if (summary) {{
+      if (!isQuiz) {{
+        let right = 0, wrong = 0, skip = 0;
+        QUESTIONS.forEach((q, i) => {{
+          const ua = answers[q.id ?? i];
+          if (!ua) skip++;
+          else if (String(ua) === String(q.answer)) right++;
+          else wrong++;
+        }});
+        summary.innerHTML = `✅ ${{right}}  ❌ ${{wrong}}  ⏭️ ${{skip}}`;
+      }} else {{
+        const attempted = Object.keys(answers).length;
+        const marked = markedForReview.size;
+        const notAttempted = total - attempted - marked;
+        summary.innerHTML = `Total: ${{total}} | <span style="color:var(--success)">Attempted: ${{attempted}}</span> | <span style="color:var(--danger)">Unattempted: ${{notAttempted}}</span> | <span style="color:var(--purple)">Marked: ${{marked}}</span>`;
+      }}
     }}
   }}
 
@@ -1125,7 +1193,7 @@ mjx-container{{
 <!-- Simple loading indicator -->
 <div id="loadingMessage" style="text-align:center; margin-top:50px; font-size:18px;">Checking authentication...</div>
 
-<!-- QUIZ HEADER (hidden initially) – leaderboard button removed -->
+<!-- QUIZ HEADER (hidden initially) -->
 <header id="quizHeader" style="display:none;">
   <div class="header-inner" id="headerControls">
     <div style="display:flex; align-items:center; gap:12px">
