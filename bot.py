@@ -230,7 +230,7 @@ def parse_txt_file(content):
     return questions
 
 def generate_html_quiz(quiz_data):
-    """Generate HTML quiz from the parsed data – Enhanced with 3‑section result, leaderboard, and multi‑layer watermark"""
+    """Generate HTML quiz from the parsed data – Enhanced with 4 tabs (Review, Summary, Leaderboard, History)"""
     
     # You can customize this watermark text
     WATERMARK_TEXT = "@SSC_JOURNEY2"   # ← Change here to your desired watermark
@@ -477,7 +477,7 @@ mjx-container{{
   const db = firebase.database();
 
   // ---------- CONFIGURATION ----------
-  const LOGIN_PAGE_URL = "login.html";  // ✅ FIXED: relative path (adjust if needed)
+  const LOGIN_PAGE_URL = "login.html";  // ✅ relative path (same folder)
   // -----------------------------------
 
   // Quiz data from Python
@@ -718,33 +718,80 @@ mjx-container{{
     if (window.MathJax && MathJax.typesetPromise) MathJax.typesetPromise();
   }}
 
-  // Leaderboard: fetch all attempts and show top 10 with candidate name
-  function showLeaderboard() {{
-    db.ref("attempt_history/" + QUIZ_TITLE).once("value").then(snapshot => {{
-      const data = snapshot.val();
-      if (!data) {{
-        document.getElementById("leaderboardBody").innerHTML = "<p>No attempts yet.</p>";
-        document.getElementById("leaderboardModal").style.display = "flex";
-        return;
-      }}
+  // Load leaderboard for the current quiz (top 10)
+  function loadLeaderboard() {{
+    const leaderboardList = document.getElementById('leaderboardList');
+    if (!leaderboardList) return;
+    leaderboardList.innerHTML = 'Loading leaderboard...';
+    db.ref("attempt_history/" + QUIZ_TITLE).once("value").then(snap => {{
+      const data = snap.val() || {{}};
       let attempts = [];
-      Object.values(data).forEach(userAttempts => {{
-        Object.values(userAttempts).forEach(a => attempts.push(a));
-      }});
-      // Sort by score descending, then time ascending
+      Object.values(data).forEach(u => Object.values(u).forEach(a => attempts.push(a)));
       attempts.sort((a,b) => b.score - a.score || a.timeTaken - b.timeTaken);
-      // Take top 10
       const top10 = attempts.slice(0,10);
       let html = '';
       top10.forEach((a, idx) => {{
         const name = a.displayName || a.email || 'Anonymous';
-        html += `<div class="leaderboard-entry">
+        html += `<div class="leaderboard-entry" style="display:flex; justify-content:space-between; padding:10px; border-bottom:1px solid #eee;">
           <span>${{idx+1}}. ${{name}}</span>
           <span>Score: ${{a.score}} | Time: ${{fmt(a.timeTaken)}}</span>
         </div>`;
       }});
-      document.getElementById("leaderboardBody").innerHTML = html;
-      document.getElementById("leaderboardModal").style.display = "flex";
+      if (html === '') html = '<p>No attempts yet.</p>';
+      leaderboardList.innerHTML = html;
+    }}).catch(error => {{
+      console.error("Error loading leaderboard:", error);
+      leaderboardList.innerHTML = '<p>Error loading leaderboard.</p>';
+    }});
+  }}
+
+  // Load attempt history for the current user
+  function loadAttemptHistory() {{
+    const historyList = document.getElementById('historyList');
+    if (!historyList) return;
+    historyList.innerHTML = 'Loading your attempt history...';
+    
+    if (!currentUser) {{
+      historyList.innerHTML = 'You must be logged in to view history.';
+      return;
+    }}
+
+    db.ref(`attempt_history/${{QUIZ_TITLE}}/${{currentUser.uid}}`).once("value").then(snap => {{
+      const data = snap.val();
+      if (!data) {{
+        historyList.innerHTML = '<p>No previous attempts found.</p>';
+        return;
+      }}
+
+      // Convert object to array and sort by date descending
+      const attempts = Object.values(data).sort((a, b) => b.submittedAt - a.submittedAt);
+
+      let html = '<div style="display:flex; flex-direction:column; gap:12px;">';
+      attempts.forEach((att, index) => {{
+        const date = new Date(att.submittedAt).toLocaleString();
+        const timeTakenFormatted = fmt(att.timeTaken);
+        html += `
+          <div class="card" style="padding:12px; margin:0;">
+            <div style="display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap;">
+              <span style="font-weight:600; color:var(--accent);">Attempt #${{attempts.length - index}}</span>
+              <span style="color:#666;">${{date}}</span>
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(auto-fit,minmax(100px,1fr)); gap:8px; margin-top:10px;">
+              <div><strong>Score:</strong> ${{att.score}} / ${{att.maxMarks}}</div>
+              <div><strong>Correct:</strong> ${{att.correct}}</div>
+              <div><strong>Wrong:</strong> ${{att.wrong}}</div>
+              <div><strong>Unattempted:</strong> ${{att.unattempted}}</div>
+              <div><strong>Accuracy:</strong> ${{att.accuracy}}%</div>
+              <div><strong>Time:</strong> ${{timeTakenFormatted}}</div>
+            </div>
+          </div>
+        `;
+      }});
+      html += '</div>';
+      historyList.innerHTML = html;
+    }}).catch(error => {{
+      console.error("Error loading history:", error);
+      historyList.innerHTML = '<p>Error loading history.</p>';
     }});
   }}
 
@@ -780,8 +827,8 @@ mjx-container{{
       correct,
       wrong,
       unattempted,
-      attempted,          // ✅ ADDED
-      accuracy,           // ✅ ADDED
+      attempted,
+      accuracy,
       timeTaken,
       quizId: QUIZ_TITLE,
       submittedAt: Date.now(),
@@ -801,12 +848,12 @@ mjx-container{{
     displayResults(payload);
   }}
 
-  // Display results – FIXED: uses payload.attempted and payload.accuracy
+  // Display results with 4 tabs: Review, Summary, Leaderboard, History
   function displayResults(payload) {{
     el("quizCard").style.display = "none";
     el("floatBar").style.display = "none";
 
-    // Build the three‑section result HTML
+    // ----- Review tab HTML (questions + answers) -----
     let reviewHTML = `<div class="card"><h3 style="color:var(--accent)">Results Summary</h3>
       <div class="stats">
         <div class="stat"><h4>Score</h4><p>${{payload.score}} / ${{payload.maxMarks}}</p></div>
@@ -847,70 +894,101 @@ mjx-container{{
       reviewHTML += `</div>`;
     }});
 
-    // Wrap in tabs
+    // ----- Summary tab HTML (stats + rank/percentile) -----
+    const summaryHTML = `
+      <div class="stats-grid" style="display:grid; grid-template-columns:repeat(auto-fit,minmax(140px,1fr)); gap:16px; padding:16px;">
+        <div class="stat-card" style="background:#f0f4f8; border-radius:12px; padding:16px; text-align:center;">
+          <div style="font-size:28px; font-weight:700; color:var(--accent);">${{payload.score}}</div>
+          <div style="color:#555;">Total Score</div>
+        </div>
+        <div class="stat-card" style="background:#f0f4f8; border-radius:12px; padding:16px; text-align:center;">
+          <div style="font-size:28px; font-weight:700; color:var(--success);">${{payload.correct}}</div>
+          <div style="color:#555;">Correct</div>
+        </div>
+        <div class="stat-card" style="background:#f0f4f8; border-radius:12px; padding:16px; text-align:center;">
+          <div style="font-size:28px; font-weight:700; color:var(--danger);">${{payload.wrong}}</div>
+          <div style="color:#555;">Wrong</div>
+        </div>
+        <div class="stat-card" style="background:#f0f4f8; border-radius:12px; padding:16px; text-align:center;">
+          <div style="font-size:28px; font-weight:700; color:#888;">${{payload.unattempted}}</div>
+          <div style="color:#555;">Unattempted</div>
+        </div>
+        <div class="stat-card" style="background:#f0f4f8; border-radius:12px; padding:16px; text-align:center;">
+          <div style="font-size:28px; font-weight:700; color:var(--purple);">${{payload.accuracy}}%</div>
+          <div style="color:#555;">Accuracy</div>
+        </div>
+        <div class="stat-card" style="background:#f0f4f8; border-radius:12px; padding:16px; text-align:center;">
+          <div style="font-size:28px; font-weight:700; color:var(--info);">${{fmt(payload.timeTaken)}}</div>
+          <div style="color:#555;">Time Taken</div>
+        </div>
+        <div class="stat-card" style="background:#f0f4f8; border-radius:12px; padding:16px; text-align:center;" id="rankCard">
+          <div style="font-size:28px; font-weight:700; color:var(--accent-dark);" id="rankValue">?</div>
+          <div style="color:#555;">Rank</div>
+        </div>
+        <div class="stat-card" style="background:#f0f4f8; border-radius:12px; padding:16px; text-align:center;" id="percentileCard">
+          <div style="font-size:28px; font-weight:700; color:var(--accent-dark);" id="percentileValue">?</div>
+          <div style="color:#555;">Percentile</div>
+        </div>
+      </div>
+    `;
+
+    // ----- Leaderboard tab HTML -----
+    const leaderboardHTML = `
+      <div id="leaderboardList" style="padding:16px;">Loading leaderboard...</div>
+    `;
+
+    // ----- History tab HTML -----
+    const historyHTML = `
+      <div id="historyList" style="padding:16px;">Loading your attempt history...</div>
+    `;
+
+    // Four tabs
     const finalHTML = `
       <div class="tabs" id="resultTabs">
         <button class="tab active" data-tab="review">Review</button>
         <button class="tab" data-tab="summary">Summary</button>
         <button class="tab" data-tab="leaderboard">Leaderboard</button>
+        <button class="tab" data-tab="history">History</button>
       </div>
       <div class="section active" id="section-review">${{reviewHTML}}</div>
-      <div class="section" id="section-summary">
-        <div class="stats-grid" id="summary-stats">
-          <div class="stat-card"><div class="stat-value">${{payload.score}}</div><div>Total Score</div></div>
-          <div class="stat-card"><div class="stat-value">${{payload.correct}}</div><div>Correct</div></div>
-          <div class="stat-card"><div class="stat-value">${{payload.wrong}}</div><div>Wrong</div></div>
-          <div class="stat-card"><div class="stat-value">${{payload.unattempted}}</div><div>Unattempted</div></div>
-          <div class="stat-card"><div class="stat-value">${{payload.accuracy}}%</div><div>Accuracy</div></div>
-          <div class="stat-card"><div class="stat-value">${{payload.attempted}}</div><div>Attempted</div></div>
-          <div class="stat-card"><div class="stat-value">${{fmt(payload.timeTaken)}}</div><div>Time Taken</div></div>
-          <div class="stat-card"><div class="stat-value" id="rankValue">?</div><div>Rank</div></div>
-          <div class="stat-card"><div class="stat-value" id="percentileValue">?</div><div>Percentile</div></div>
-        </div>
-      </div>
-      <div class="section" id="section-leaderboard">
-        <div id="leaderboardList"></div>
-      </div>
+      <div class="section" id="section-summary">${{summaryHTML}}</div>
+      <div class="section" id="section-leaderboard">${{leaderboardHTML}}</div>
+      <div class="section" id="section-history">${{historyHTML}}</div>
     `;
 
     el("results").innerHTML = finalHTML;
     normalizeMathForQuiz(el("results"));
     renderMath();
     el("results").style.display = "block";
-    LAST_RESULT_HTML = finalHTML;
 
-    // Save result to localStorage
-    const headerHTML = el("headerControls").innerHTML;
-    localStorage.setItem(QUIZ_RESULT_KEY, JSON.stringify({{
-      submitted: true,
-      resultHTML: finalHTML,
-      headerHTML: headerHTML
-    }}));
-
-    // Update header with result controls
+    // Update header with re‑attempt button only
     const header = el("headerControls");
     header.innerHTML = `
       <div style="display:flex; align-items:center; gap:10px">
         <h1>${{QUIZ_TITLE}}</h1>
       </div>
       <div style="display:flex; gap:10px">
-        <button class="btn" onclick="location.reload()">Re-Attempt</button>
-        <button class="btn-ghost" onclick="showLeaderboard()">Leaderboard</button>
+        <button class="btn" onclick="reattemptQuiz()">Re-Attempt</button>
       </div>
     `;
 
-    // Tab switching
+    // Tab switching – load data when specific tabs are activated
     document.querySelectorAll('.tab').forEach(tab => {{
       tab.addEventListener('click', (e) => {{
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         e.target.classList.add('active');
         document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
-        document.getElementById(`section-${{e.target.dataset.tab}}`).classList.add('active');
-        if (e.target.dataset.tab === 'leaderboard') loadLeaderboard();
+        const tabName = e.target.dataset.tab;
+        document.getElementById(`section-${{tabName}}`).classList.add('active');
+        if (tabName === 'leaderboard') {{
+          loadLeaderboard();
+        }} else if (tabName === 'history') {{
+          loadAttemptHistory();
+        }}
       }});
     }});
 
-    // Compute rank and percentile (simplified)
+    // Compute rank and percentile
     db.ref("attempt_history/" + QUIZ_TITLE).once("value").then(snap => {{
       const data = snap.val() || {{}};
       let attempts = [];
@@ -926,21 +1004,6 @@ mjx-container{{
       const percentile = ((attempts.length - rank) / attempts.length * 100).toFixed(1);
       document.getElementById('rankValue').textContent = rank + '/' + attempts.length;
       document.getElementById('percentileValue').textContent = percentile + '%';
-    }});
-  }}
-
-  function loadLeaderboard() {{
-    db.ref("attempt_history/" + QUIZ_TITLE).once("value").then(snap => {{
-      const data = snap.val() || {{}};
-      let attempts = [];
-      Object.values(data).forEach(u => Object.values(u).forEach(a => attempts.push(a)));
-      attempts.sort((a,b) => b.score - a.score || a.timeTaken - b.timeTaken);
-      const top10 = attempts.slice(0,10);
-      let html = '';
-      top10.forEach((a, idx) => {{
-        html += `<div class="leaderboard-entry"><span>${{idx+1}}. ${{a.displayName || a.email}}</span><span>Score: ${{a.score}} | Time: ${{fmt(a.timeTaken)}}</span></div>`;
-      }});
-      document.getElementById('leaderboardList').innerHTML = html;
     }});
   }}
 
@@ -986,10 +1049,7 @@ mjx-container{{
       isQuiz = el("modeToggle").classList.contains("active");
       renderQuestion(current);
     }});
-    el("leaderboardBtn").addEventListener("click", showLeaderboard);
-    el("closeLeaderboard").addEventListener("click", () => {{
-      document.getElementById("leaderboardModal").style.display = "none";
-    }});
+    // Leaderboard button removed from header – no listener needed
     document.addEventListener("click", (ev) => {{
       const pal = el("palette");
       if(pal && pal.style.display === "flex" && !pal.contains(ev.target) && ev.target !== el("paletteBtn") && !el("paletteBtn").contains(ev.target)) {{
@@ -1046,6 +1106,12 @@ mjx-container{{
     if(pal.style.display === "flex") highlightPalette();
   }}
 
+  function reattemptQuiz() {{
+    localStorage.removeItem(QUIZ_STATE_KEY);
+    localStorage.removeItem(QUIZ_RESULT_KEY);
+    location.reload();
+  }}
+
   function rebindResultHeaderActions() {{ }}
 
   // Disable copy protection (optional)
@@ -1059,7 +1125,7 @@ mjx-container{{
 <!-- Simple loading indicator -->
 <div id="loadingMessage" style="text-align:center; margin-top:50px; font-size:18px;">Checking authentication...</div>
 
-<!-- QUIZ HEADER (hidden initially) -->
+<!-- QUIZ HEADER (hidden initially) – leaderboard button removed -->
 <header id="quizHeader" style="display:none;">
   <div class="header-inner" id="headerControls">
     <div style="display:flex; align-items:center; gap:12px">
@@ -1069,7 +1135,6 @@ mjx-container{{
       <div class="timer-text" id="timer">00:00</div>
       <button id="submitBtn" class="btn">Submit</button>
       <button id="paletteBtn" class="btn-ghost">View</button>
-      <button id="leaderboardBtn" class="btn-ghost">Leaderboard</button>
     </div>
   </div>
 </header>
@@ -1111,15 +1176,6 @@ mjx-container{{
   </div>
 </div>
 
-<!-- LEADERBOARD MODAL -->
-<div id="leaderboardModal" class="modal">
-  <div class="modal-content" style="max-width:600px; text-align:left;">
-    <h3>Top 10 Leaderboard</h3>
-    <div id="leaderboardBody" style="max-height:400px; overflow-y:auto;"></div>
-    <button id="closeLeaderboard" class="btn" style="margin-top:12px;">Close</button>
-  </div>
-</div>
-
 <!-- PALETTE -->
 <div id="palette" aria-hidden="true"></div>
 
@@ -1157,7 +1213,7 @@ mjx-container{{
     
     return html
 
-# Bot Handlers (keep all existing handlers from original file)
+# Bot Handlers (unchanged from original – keep all existing handlers)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send welcome message"""
     update_activity()
@@ -1513,7 +1569,7 @@ Answer: (a)
 • Timer with countdown
 • Test/Quiz mode toggle
 • Rank and percentile system
-• Previous attempts tracking
+• Previous attempts tracking (History tab)
 • Firebase integration
 • Mobile responsive design
 • Hindi/English bilingual support
@@ -1538,7 +1594,7 @@ async def status_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     status_text = (
         f"🤖 *Bot Status*\n\n"
         f"• Status: ✅ Running\n"
-        f"• Last activity: {datetime.fromtimestamp(last_activity).strftime('%Y-%m-d %H:%M:%S')}\n"
+        f"• Last activity: {datetime.fromtimestamp(last_activity).strftime('%Y-%m-%d %H:%M:%S')}\n"
         f"• Active users: {len(user_data)}\n"
         f"• Active processes: {len(user_progress)}\n"
         f"• Render URL: {RENDER_APP_URL if RENDER_APP_URL else 'Not set'}\n"
