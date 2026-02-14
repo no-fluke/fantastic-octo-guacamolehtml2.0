@@ -230,15 +230,17 @@ def parse_txt_file(content):
     return questions
 
 def generate_html_quiz(quiz_data):
-    """Generate HTML quiz from the parsed data"""
+    """Generate HTML quiz from the parsed data – Enhanced with 3‑section result, leaderboard, and no popups"""
     
-    # Updated template with fast auth, candidate name in leaderboard, no ads
-    template = """<!doctype html>
+    # You can customize this watermark text
+    WATERMARK_TEXT = "RankUp"   # ← Change here to your desired watermark
+
+    template = f"""<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
-<title>{quiz_name}</title>
+<title>{{quiz_name}}</title>
 <style>
 :root{{
   --accent:#2ec4b6;
@@ -334,6 +336,21 @@ input, textarea{{
   user-select: text !important;
 }}
 
+/* watermark */
+.watermark{{
+  position: fixed;
+  bottom: 10px;
+  right: 10px;
+  font-size: 14px;
+  color: var(--muted);
+  opacity: 0.25;
+  pointer-events: none;
+  z-index: 9999;
+  font-weight: 500;
+  letter-spacing: 1px;
+  transform: rotate(-2deg);
+}}
+
 /* 🔢 MathJax mobile safety */
 mjx-container{{
   max-width: 100%;
@@ -367,6 +384,61 @@ mjx-container{{
   .container{{ max-width:900px; }}
   .fbar-inner{{ max-width:900px; }}
 }}
+
+/* tabs for results */
+.tabs {{
+  display: flex;
+  gap: 4px;
+  background: var(--card);
+  padding: 8px;
+  border-radius: 40px;
+  margin: 20px 0;
+}}
+.tab {{
+  flex: 1;
+  text-align: center;
+  padding: 10px;
+  border-radius: 30px;
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-weight: 600;
+  cursor: pointer;
+}}
+.tab.active {{
+  background: var(--accent);
+  color: white;
+}}
+.section {{
+  display: none;
+}}
+.section.active {{
+  display: block;
+}}
+.filter-buttons {{
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin: 16px 0;
+}}
+.filter-btn {{
+  background: transparent;
+  border: 1px solid var(--border);
+  padding: 6px 16px;
+  border-radius: 30px;
+  cursor: pointer;
+}}
+.filter-btn.active {{
+  background: var(--accent);
+  color: white;
+  border-color: var(--accent);
+}}
+.leaderboard-entry {{
+  display: flex;
+  justify-content: space-between;
+  padding: 8px;
+  border-bottom: 1px solid #eee;
+}}
 </style>
 
 <!-- 🔢 MathJax -->
@@ -387,11 +459,11 @@ mjx-container{{
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <script>
-  // 🔥 Your Firebase configuration (UPDATED with your credentials)
+  // 🔥 Your Firebase configuration (from bot.py)
   const firebaseConfig = {{
     apiKey: "AIzaSyAQk0dJayCyv8gfDGsYW-XSYC5n13oWvpA",
     authDomain: "ssc-journey.firebaseapp.com",
-    databaseURL: "https://ssc-journey-default-rtdb.asia-southeast1.firebasedatabase.app/", // 🔴 REPLACE with your actual Realtime Database URL
+    databaseURL: "https://ssc-journey-default-rtdb.asia-southeast1.firebasedatabase.app/",
     projectId: "ssc-journey",
     storageBucket: "ssc-journey.firebasestorage.app",
     messagingSenderId: "151868913274",
@@ -403,13 +475,13 @@ mjx-container{{
   const db = firebase.database();
 
   // ---------- CONFIGURATION ----------
-  const LOGIN_PAGE_URL = ""/website-finial/login.html";  // Your login page path
+  const LOGIN_PAGE_URL = "/website-finial/login.html";  // Your login page path
   // -----------------------------------
 
   // Quiz data from Python
-  const QUIZ_TITLE = "{quiz_name}";
-  const QUESTIONS = {questions_array};
-  const TOTAL_TIME_SECONDS = {seconds};
+  const QUIZ_TITLE = "{{quiz_name}}";
+  const QUESTIONS = {{questions_array}};
+  const TOTAL_TIME_SECONDS = {{seconds}};
 
   // Global state
   let currentUser = null;
@@ -439,16 +511,13 @@ mjx-container{{
   // Try synchronous currentUser first
   const syncUser = auth.currentUser;
   if (syncUser) {{
-    // Already authenticated – use it
     currentUser = syncUser;
-    // Cache user data
     localStorage.setItem('quiz_user_uid', syncUser.uid);
     localStorage.setItem('quiz_user_email', syncUser.email);
     localStorage.setItem('quiz_user_displayName', syncUser.displayName || '');
     localStorage.setItem('quiz_login_time', Date.now());
     showQuizImmediately();
   }} else {{
-    // Check for cached UID (optimistic)
     const cachedUid = localStorage.getItem('quiz_user_uid');
     const cachedName = localStorage.getItem('quiz_user_displayName') || localStorage.getItem('quiz_user_email');
     const cachedTime = localStorage.getItem('quiz_login_time');
@@ -456,7 +525,6 @@ mjx-container{{
     const CACHE_VALIDITY = 60 * 60 * 1000; // 1 hour
 
     if (cachedUid && cachedTime && (now - cachedTime < CACHE_VALIDITY)) {{
-      // Show quiz immediately with cached data
       currentUser = {{
         uid: cachedUid,
         email: localStorage.getItem('quiz_user_email'),
@@ -465,22 +533,17 @@ mjx-container{{
       showQuizImmediately();
     }}
 
-    // Also set up observer to catch real auth state (and update cache if needed)
     auth.onAuthStateChanged(user => {{
       if (user) {{
         currentUser = user;
-        // Update cache
         localStorage.setItem('quiz_user_uid', user.uid);
         localStorage.setItem('quiz_user_email', user.email);
         localStorage.setItem('quiz_user_displayName', user.displayName || '');
         localStorage.setItem('quiz_login_time', Date.now());
-
-        // If quiz not already shown (cached was missing/expired), show it now
         if (!window.quizInitialized) {{
           showQuizImmediately();
         }}
       }} else {{
-        // Not logged in – clear cache and redirect
         localStorage.removeItem('quiz_user_uid');
         localStorage.removeItem('quiz_user_email');
         localStorage.removeItem('quiz_user_displayName');
@@ -495,7 +558,6 @@ mjx-container{{
 
   function initQuiz() {{
     el("qtotal").textContent = QUESTIONS.length;
-    // Check if already submitted
     const resultSaved = localStorage.getItem(QUIZ_RESULT_KEY);
     if (resultSaved) {{
       const data = JSON.parse(resultSaved);
@@ -504,7 +566,6 @@ mjx-container{{
         return;
       }}
     }}
-    // Resume from saved state
     const saved = localStorage.getItem(QUIZ_STATE_KEY);
     if (saved) {{
       const state = JSON.parse(saved);
@@ -646,9 +707,8 @@ mjx-container{{
       const top10 = attempts.slice(0,10);
       let html = '';
       top10.forEach((a, idx) => {{
-        // Use displayName if available, otherwise email
         const name = a.displayName || a.email || 'Anonymous';
-        html += `<div class="leaderboard-entry" style="display:flex; justify-content:space-between; padding:8px; border-bottom:1px solid #eee;">
+        html += `<div class="leaderboard-entry">
           <span>${{idx+1}}. ${{name}}</span>
           <span>Score: ${{a.score}} | Time: ${{fmt(a.timeTaken)}}</span>
         </div>`;
@@ -679,7 +739,6 @@ mjx-container{{
     const unattempted = QUESTIONS.length - attempted;
     const accuracy = attempted ? ((correct/attempted)*100).toFixed(1) : "0.0";
 
-    // Get display name from currentUser
     const displayName = currentUser.displayName || currentUser.email || 'Anonymous';
 
     const payload = {{
@@ -705,18 +764,16 @@ mjx-container{{
       }})
     }};
 
-    // Save to Firebase
     db.ref(`attempt_history/${{QUIZ_TITLE}}/${{currentUser.uid}}/${{payload.submittedAt}}`).set(payload);
 
-    // Directly show results
     displayResults(payload);
   }}
 
   function displayResults(payload) {{
     el("quizCard").style.display = "none";
     el("floatBar").style.display = "none";
-    el("quizHeader").style.display = "none";
 
+    // Build the three‑section result HTML
     let reviewHTML = `<div class="card"><h3 style="color:var(--accent)">Results Summary</h3>
       <div class="stats">
         <div class="stat"><h4>Score</h4><p>${{payload.score}} / ${{payload.maxMarks}}</p></div>
@@ -757,17 +814,43 @@ mjx-container{{
       reviewHTML += `</div>`;
     }});
 
-    el("results").innerHTML = reviewHTML;
+    // Wrap in tabs
+    const finalHTML = `
+      <div class="tabs" id="resultTabs">
+        <button class="tab active" data-tab="review">Review</button>
+        <button class="tab" data-tab="summary">Summary</button>
+        <button class="tab" data-tab="leaderboard">Leaderboard</button>
+      </div>
+      <div class="section active" id="section-review">${{reviewHTML}}</div>
+      <div class="section" id="section-summary">
+        <div class="stats-grid" id="summary-stats">
+          <div class="stat-card"><div class="stat-value">${{payload.score}}</div><div>Total Score</div></div>
+          <div class="stat-card"><div class="stat-value">${{payload.correct}}</div><div>Correct</div></div>
+          <div class="stat-card"><div class="stat-value">${{payload.wrong}}</div><div>Wrong</div></div>
+          <div class="stat-card"><div class="stat-value">${{payload.unattempted}}</div><div>Unattempted</div></div>
+          <div class="stat-card"><div class="stat-value">${{accuracy}}%</div><div>Accuracy</div></div>
+          <div class="stat-card"><div class="stat-value">${{payload.attempted}}</div><div>Attempted</div></div>
+          <div class="stat-card"><div class="stat-value">${{fmt(payload.timeTaken)}}</div><div>Time Taken</div></div>
+          <div class="stat-card"><div class="stat-value" id="rankValue">?</div><div>Rank</div></div>
+          <div class="stat-card"><div class="stat-value" id="percentileValue">?</div><div>Percentile</div></div>
+        </div>
+      </div>
+      <div class="section" id="section-leaderboard">
+        <div id="leaderboardList"></div>
+      </div>
+    `;
+
+    el("results").innerHTML = finalHTML;
     normalizeMathForQuiz(el("results"));
     renderMath();
     el("results").style.display = "block";
-    LAST_RESULT_HTML = reviewHTML;
+    LAST_RESULT_HTML = finalHTML;
 
     // Save result to localStorage
     const headerHTML = el("headerControls").innerHTML;
     localStorage.setItem(QUIZ_RESULT_KEY, JSON.stringify({{
       submitted: true,
-      resultHTML: reviewHTML,
+      resultHTML: finalHTML,
       headerHTML: headerHTML
     }}));
 
@@ -782,6 +865,50 @@ mjx-container{{
         <button class="btn-ghost" onclick="showLeaderboard()">Leaderboard</button>
       </div>
     `;
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {{
+      tab.addEventListener('click', (e) => {{
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        e.target.classList.add('active');
+        document.querySelectorAll('.section').forEach(s => s.classList.remove('active'));
+        document.getElementById(`section-${{e.target.dataset.tab}}`).classList.add('active');
+        if (e.target.dataset.tab === 'leaderboard') loadLeaderboard();
+      }});
+    }});
+
+    // Compute rank and percentile (simplified)
+    db.ref("attempt_history/" + QUIZ_TITLE).once("value").then(snap => {{
+      const data = snap.val() || {{}};
+      let attempts = [];
+      Object.values(data).forEach(u => Object.values(u).forEach(a => attempts.push(a)));
+      attempts.sort((a,b) => b.score - a.score || a.timeTaken - b.timeTaken);
+      let rank = 1;
+      for (let i=0; i<attempts.length; i++) {{
+        if (attempts[i].userId === payload.userId && attempts[i].submittedAt === payload.submittedAt) {{
+          rank = i+1;
+          break;
+        }}
+      }}
+      const percentile = ((attempts.length - rank) / attempts.length * 100).toFixed(1);
+      document.getElementById('rankValue').textContent = rank + '/' + attempts.length;
+      document.getElementById('percentileValue').textContent = percentile + '%';
+    }});
+  }}
+
+  function loadLeaderboard() {{
+    db.ref("attempt_history/" + QUIZ_TITLE).once("value").then(snap => {{
+      const data = snap.val() || {{}};
+      let attempts = [];
+      Object.values(data).forEach(u => Object.values(u).forEach(a => attempts.push(a)));
+      attempts.sort((a,b) => b.score - a.score || a.timeTaken - b.timeTaken);
+      const top10 = attempts.slice(0,10);
+      let html = '';
+      top10.forEach((a, idx) => {{
+        html += `<div class="leaderboard-entry"><span>${{idx+1}}. ${{a.displayName || a.email}}</span><span>Score: ${{a.score}} | Time: ${{fmt(a.timeTaken)}}</span></div>`;
+      }});
+      document.getElementById('leaderboardList').innerHTML = html;
+    }});
   }}
 
   function filterResults(type) {{
@@ -886,11 +1013,9 @@ mjx-container{{
     if(pal.style.display === "flex") highlightPalette();
   }}
 
-  function rebindResultHeaderActions() {{
-    // Handlers for result header buttons (if needed)
-  }}
+  function rebindResultHeaderActions() {{ }}
 
-  // Disable copy protection (optional – keep as in original)
+  // Disable copy protection (optional)
   document.addEventListener("contextmenu", e => e.preventDefault());
   document.addEventListener("keydown", function(e) {{
     if ((e.ctrlKey || e.metaKey) && ["c","x","v","a","s","p","u"].includes(e.key.toLowerCase())) e.preventDefault();
@@ -969,6 +1094,9 @@ mjx-container{{
 <!-- PALETTE -->
 <div id="palette" aria-hidden="true"></div>
 
+<!-- Subtle watermark (customizable) -->
+<div class="watermark">{WATERMARK_TEXT}</div>
+
 </body>
 </html>"""
     
@@ -988,12 +1116,13 @@ mjx-container{{
     html = template.format(
         quiz_name=quiz_data["name"],
         questions_array=questions_js,
-        seconds=seconds
+        seconds=seconds,
+        WATERMARK_TEXT=WATERMARK_TEXT
     )
     
     return html
 
-# Bot Handlers (keep all existing handlers from deepseek file)
+# Bot Handlers (keep all existing handlers from original file)
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """Send welcome message"""
     update_activity()
