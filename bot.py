@@ -235,12 +235,12 @@ def generate_html_quiz(quiz_data):
     # You can customize this watermark text
     WATERMARK_TEXT = "RankUp"   # ← Change here to your desired watermark
 
-    template = f"""<!doctype html>
+    template = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
-<title>{{quiz_name}}</title>
+<title>{quiz_name}</title>
 <style>
 :root{{
   --accent:#2ec4b6;
@@ -479,9 +479,9 @@ mjx-container{{
   // -----------------------------------
 
   // Quiz data from Python
-  const QUIZ_TITLE = "{{quiz_name}}";
-  const QUESTIONS = {{questions_array}};
-  const TOTAL_TIME_SECONDS = {{seconds}};
+  const QUIZ_TITLE = "{quiz_name}";
+  const QUESTIONS = {questions_array};
+  const TOTAL_TIME_SECONDS = {seconds};
 
   // Global state
   let currentUser = null;
