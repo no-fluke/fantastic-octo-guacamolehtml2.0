@@ -230,16 +230,16 @@ def parse_txt_file(content):
     return questions
 
 def generate_html_quiz(quiz_data):
-    """Generate HTML quiz from the parsed data – Enhanced with 3‑section result, leaderboard, and no popups"""
+    """Generate HTML quiz from the parsed data – Enhanced with 3‑section result, leaderboard, and multi‑layer watermark"""
     
     # You can customize this watermark text
-    WATERMARK_TEXT = "RankUp"   # ← Change here to your desired watermark
+    WATERMARK_TEXT = "@SSC_JOURNEY2"   # ← Change here to your desired watermark
 
-    template = """<!doctype html>
+    template = """<!DOCTYPE html>
 <html lang="en">
 <head>
-<meta charset="utf-8" />
-<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no" />
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
 <title>{quiz_name}</title>
 <style>
 :root{{
@@ -336,19 +336,21 @@ input, textarea{{
   user-select: text !important;
 }}
 
-/* watermark */
-.watermark{{
+/* 🔐 WATERMARK (multi‑layer) */
+.watermark-container {{
   position: fixed;
-  bottom: 10px;
-  right: 10px;
-  font-size: 14px;
-  color: var(--muted);
-  opacity: 0.25;
+  inset: 0;
+  z-index: 3;
   pointer-events: none;
-  z-index: 9999;
-  font-weight: 500;
-  letter-spacing: 1px;
-  transform: rotate(-2deg);
+  overflow: hidden;
+}}
+.watermark {{
+  position: absolute;
+  font-size: 26px;
+  font-weight: 700;
+  color: rgba(0,0,0,0.045);
+  transform: rotate(-30deg);
+  white-space: nowrap;
 }}
 
 /* 🔢 MathJax mobile safety */
@@ -459,7 +461,7 @@ mjx-container{{
 <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
 <script>
-  // 🔥 Your Firebase configuration (from bot.py)
+  // 🔥 Your Firebase configuration (UPDATED)
   const firebaseConfig = {{
     apiKey: "AIzaSyAQk0dJayCyv8gfDGsYW-XSYC5n13oWvpA",
     authDomain: "ssc-journey.firebaseapp.com",
@@ -475,7 +477,7 @@ mjx-container{{
   const db = firebase.database();
 
   // ---------- CONFIGURATION ----------
-  const LOGIN_PAGE_URL = "/website-finial/login.html";  // Your login page path
+  const LOGIN_PAGE_URL = "/website-finial/login.html";  // Adjust if needed
   // -----------------------------------
 
   // Quiz data from Python
@@ -718,7 +720,7 @@ mjx-container{{
     }});
   }}
 
-  // Submit quiz (no ads)
+  // Submit quiz – FIXED: added attempted and accuracy to payload
   function submitQuiz() {{
     clearInterval(timerInterval);
     const timeTaken = TOTAL_TIME_SECONDS - seconds;
@@ -750,6 +752,8 @@ mjx-container{{
       correct,
       wrong,
       unattempted,
+      attempted,          // ✅ ADDED
+      accuracy,           // ✅ ADDED
       timeTaken,
       quizId: QUIZ_TITLE,
       submittedAt: Date.now(),
@@ -769,6 +773,7 @@ mjx-container{{
     displayResults(payload);
   }}
 
+  // Display results – FIXED: uses payload.attempted and payload.accuracy
   function displayResults(payload) {{
     el("quizCard").style.display = "none";
     el("floatBar").style.display = "none";
@@ -780,7 +785,7 @@ mjx-container{{
         <div class="stat"><h4>Correct</h4><p>${{payload.correct}}</p></div>
         <div class="stat"><h4>Wrong</h4><p>${{payload.wrong}}</p></div>
         <div class="stat"><h4>Unattempted</h4><p>${{payload.unattempted}}</p></div>
-        <div class="stat"><h4>Accuracy</h4><p>${{accuracy}}%</p></div>
+        <div class="stat"><h4>Accuracy</h4><p>${{payload.accuracy}}%</p></div>
         <div class="stat"><h4>Time</h4><p>${{fmt(payload.timeTaken)}}</p></div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin:10px 0">
@@ -828,7 +833,7 @@ mjx-container{{
           <div class="stat-card"><div class="stat-value">${{payload.correct}}</div><div>Correct</div></div>
           <div class="stat-card"><div class="stat-value">${{payload.wrong}}</div><div>Wrong</div></div>
           <div class="stat-card"><div class="stat-value">${{payload.unattempted}}</div><div>Unattempted</div></div>
-          <div class="stat-card"><div class="stat-value">${{accuracy}}%</div><div>Accuracy</div></div>
+          <div class="stat-card"><div class="stat-value">${{payload.accuracy}}%</div><div>Accuracy</div></div>
           <div class="stat-card"><div class="stat-value">${{payload.attempted}}</div><div>Attempted</div></div>
           <div class="stat-card"><div class="stat-value">${{fmt(payload.timeTaken)}}</div><div>Time Taken</div></div>
           <div class="stat-card"><div class="stat-value" id="rankValue">?</div><div>Rank</div></div>
@@ -1094,8 +1099,14 @@ mjx-container{{
 <!-- PALETTE -->
 <div id="palette" aria-hidden="true"></div>
 
-<!-- Subtle watermark (customizable) -->
-<div class="watermark">{WATERMARK_TEXT}</div>
+<!-- Multi‑layer watermark (customizable) -->
+<div class="watermark-container">
+  <div class="watermark" style="top:10%; left:5%;">{WATERMARK_TEXT}</div>
+  <div class="watermark" style="top:30%; left:60%;">{WATERMARK_TEXT}</div>
+  <div class="watermark" style="top:55%; left:25%;">{WATERMARK_TEXT}</div>
+  <div class="watermark" style="top:75%; left:65%;">{WATERMARK_TEXT}</div>
+  <div class="watermark" style="top:90%; left:10%;">{WATERMARK_TEXT}</div>
+</div>
 
 </body>
 </html>"""
