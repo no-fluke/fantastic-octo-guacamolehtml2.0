@@ -477,7 +477,7 @@ mjx-container{{
   const db = firebase.database();
 
   // ---------- CONFIGURATION ----------
-  const LOGIN_PAGE_URL = "/website-finial/login.html";  // Adjust if needed
+  const LOGIN_PAGE_URL = "login.html";  // ✅ FIXED: relative path (adjust if needed)
   // -----------------------------------
 
   // Quiz data from Python
@@ -498,65 +498,94 @@ mjx-container{{
   const QUIZ_STATE_KEY = "ssc_quiz_state_" + QUIZ_TITLE;
   const QUIZ_RESULT_KEY = "ssc_quiz_result_" + QUIZ_TITLE;
 
-  // ----- FAST AUTH CHECK -----
+  // Helper functions
+  const el = id => document.getElementById(id);
+
   function showQuizImmediately() {{
-    document.getElementById('loadingMessage').style.display = 'none';
-    document.getElementById('quizHeader').style.display = 'flex';
-    document.getElementById('quizContainer').style.display = 'block';
-    document.getElementById('floatBar').style.display = 'flex';
+    el('loadingMessage').style.display = 'none';
+    el('quizHeader').style.display = 'flex';
+    el('quizContainer').style.display = 'block';
+    el('floatBar').style.display = 'flex';
     if (!window.quizInitialized) {{
       initQuiz();
       window.quizInitialized = true;
     }}
   }}
 
-  // Try synchronous currentUser first
-  const syncUser = auth.currentUser;
-  if (syncUser) {{
-    currentUser = syncUser;
-    localStorage.setItem('quiz_user_uid', syncUser.uid);
-    localStorage.setItem('quiz_user_email', syncUser.email);
-    localStorage.setItem('quiz_user_displayName', syncUser.displayName || '');
-    localStorage.setItem('quiz_login_time', Date.now());
-    showQuizImmediately();
-  }} else {{
+  // Redirect helper
+  function redirectToLogin() {{
+    const returnTo = encodeURIComponent(window.location.href);
+    window.location.href = LOGIN_PAGE_URL + "?returnTo=" + returnTo;
+  }}
+
+  // ---------- FIXED AUTH LOGIC ----------
+  window.addEventListener('DOMContentLoaded', () => {{
+    // 1. Set persistence to LOCAL
+    auth.setPersistence(firebase.auth.Auth.Persistence.LOCAL)
+      .catch(error => console.error("Persistence error:", error));
+
+    // 2. Timeout fallback – if auth doesn't resolve in 4 seconds, redirect
+    let authResolved = false;
+    const authTimeout = setTimeout(() => {{
+      if (!authResolved) {{
+        console.warn("Auth timeout – redirecting to login.");
+        redirectToLogin();
+      }}
+    }}, 4000);
+
+    // 3. Try to use cached user for instant display (but still verify)
     const cachedUid = localStorage.getItem('quiz_user_uid');
-    const cachedName = localStorage.getItem('quiz_user_displayName') || localStorage.getItem('quiz_user_email');
+    const cachedEmail = localStorage.getItem('quiz_user_email');
+    const cachedName = localStorage.getItem('quiz_user_displayName');
     const cachedTime = localStorage.getItem('quiz_login_time');
     const now = Date.now();
     const CACHE_VALIDITY = 60 * 60 * 1000; // 1 hour
 
     if (cachedUid && cachedTime && (now - cachedTime < CACHE_VALIDITY)) {{
+      // Show quiz immediately with cached data (fast UI)
       currentUser = {{
         uid: cachedUid,
-        email: localStorage.getItem('quiz_user_email'),
-        displayName: localStorage.getItem('quiz_user_displayName')
+        email: cachedEmail,
+        displayName: cachedName || cachedEmail
       }};
       showQuizImmediately();
     }}
 
+    // 4. Listen to real auth state
     auth.onAuthStateChanged(user => {{
+      authResolved = true;
+      clearTimeout(authTimeout);
+
       if (user) {{
+        // Real user logged in – update cache and show quiz if not already shown
         currentUser = user;
         localStorage.setItem('quiz_user_uid', user.uid);
         localStorage.setItem('quiz_user_email', user.email);
         localStorage.setItem('quiz_user_displayName', user.displayName || '');
         localStorage.setItem('quiz_login_time', Date.now());
+
         if (!window.quizInitialized) {{
           showQuizImmediately();
         }}
       }} else {{
+        // No user – clear cache and redirect
         localStorage.removeItem('quiz_user_uid');
         localStorage.removeItem('quiz_user_email');
         localStorage.removeItem('quiz_user_displayName');
         localStorage.removeItem('quiz_login_time');
-        const returnTo = encodeURIComponent(window.location.href);
-        window.location.href = LOGIN_PAGE_URL + "?returnTo=" + returnTo;
+        redirectToLogin();
       }}
+    }}, error => {{
+      // 5. Error handling
+      console.error("Auth error:", error);
+      authResolved = true;
+      clearTimeout(authTimeout);
+      el('loadingMessage').innerText = 'Authentication error. Please refresh.';
+      // Optionally redirect after a delay
+      setTimeout(redirectToLogin, 2000);
     }});
-  }}
-
-  const el = id => document.getElementById(id);
+  }});
+  // ---------- END FIXED AUTH ----------
 
   function initQuiz() {{
     el("qtotal").textContent = QUESTIONS.length;
@@ -619,7 +648,6 @@ mjx-container{{
       opts.appendChild(div);
     }});
     highlightPalette();
-    renderMath();
     saveQuizState();
   }}
 
@@ -1024,10 +1052,6 @@ mjx-container{{
   document.addEventListener("contextmenu", e => e.preventDefault());
   document.addEventListener("keydown", function(e) {{
     if ((e.ctrlKey || e.metaKey) && ["c","x","v","a","s","p","u"].includes(e.key.toLowerCase())) e.preventDefault();
-  }});
-
-  window.addEventListener("DOMContentLoaded", () => {{
-    document.getElementById('loadingMessage').style.display = 'block';
   }});
 </script>
 </head>
